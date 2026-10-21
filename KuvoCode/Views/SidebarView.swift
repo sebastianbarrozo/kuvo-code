@@ -994,6 +994,13 @@ private struct BotRow: View {
         } subtitle: {
             status
         } trailing: {
+            if let branch {
+                Text("[\(branch)]")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.tint)
+                    .lineLimit(1)
+                    .help(worktree == nil ? "Current branch: \(branch)" : "This agent works in its own worktree, on \(branch)")
+            }
             if let session {
                 SessionStatus(session: session)
             }
@@ -1002,12 +1009,20 @@ private struct BotRow: View {
         // Read again whenever it's done some work: it may have scheduled a wake-up.
         .task(id: session?.time.updated) {
             await app.wakeUps.read(bot.wakeOwner)
+            if let workplace { await workspace.loadBranch(for: workplace) }
             if hasNews { await workspace.loadReplyPreview(bot.sessionID) }
         }
     }
 
     /// It said something you haven't read.
     private var hasNews: Bool { bots.mood(of: bot, in: workspace) == .news }
+    /// The main bot and every other bot use their session's workplace. A configured project wins,
+    /// but a bot whose session is already in a Git folder still gets its branch shown.
+    private var workplace: String? { bot.project ?? session?.location.directory }
+    /// A worktree carries its own branch; otherwise this is the branch currently checked out at
+    /// the bot's workplace.
+    private var worktree: Workspace.Worktree? { workplace.flatMap { workspace.worktrees[$0] } }
+    private var branch: String? { worktree?.branch ?? workplace.flatMap { workspace.branches[$0] } }
 
     /// What it's up to: working, waiting for you, what it said that you haven't read, when it
     /// wakes next, or its job. What it's set to do (wake up, watch) and how it's set (paused)
