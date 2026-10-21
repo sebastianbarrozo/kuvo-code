@@ -31,6 +31,8 @@ struct BotEditor: View {
     @State private var machine: String?
     /// The project it works in; nil for a folder of its own.
     @State private var project: String?
+    /// The visual scope for a bot with a folder of its own.
+    @State private var scope: String
     @State private var showsAddMachine = false
     /// An integration it's being given a key of its own for, in the form's place.
     @State private var keyFor: Integrations.Service?
@@ -62,6 +64,7 @@ struct BotEditor: View {
         _firstMessage = State(initialValue: recipe.map { BotTemplate.firstMessage(job: $0.job, instructions: $0.instructions) } ?? "")
         _machine = State(initialValue: bot?.machine)
         _project = State(initialValue: bot?.project)
+        _scope = State(initialValue: bot?.scope ?? "")
         _model = State(initialValue: bot?.model)
         _personality = State(initialValue: bot?.personality)
         self.recipe = recipe
@@ -226,6 +229,19 @@ struct BotEditor: View {
                             .contentShape(.rect)
                         }
                         .environment(placeCatalog)
+                    }
+                }
+
+                if project == nil {
+                    section("Scope", note: "Groups this bot in the sidebar without putting it in a project.") {
+                        WellGroup {
+                            WellRow {
+                                Image(systemName: "square.3.layers.3d")
+                            } content: {
+                                TextField("Scope", text: $scope, prompt: Text("Scope, like Personal or Work 1"))
+                                    .textFieldStyle(.plain)
+                            }
+                        }
                     }
                 }
 
@@ -484,6 +500,7 @@ struct BotEditor: View {
             bot.look = look
             bot.model = model
             bot.personality = personality
+            bot.scope = project == nil ? trimmedScope : nil
             Task { await bots.update(bot) }
             close()
             return
@@ -497,7 +514,7 @@ struct BotEditor: View {
             }
             do {
                 try await waitForMachine()
-                let bot = try await bots.create(name: trimmedName, look: look, personality: personality, model: model, machine: machine, project: project)
+                let bot = try await bots.create(name: trimmedName, look: look, personality: personality, model: model, machine: machine, project: project, scope: trimmedScope)
                 // Its job, typed in its conversation, from a template or a shared bot; otherwise the
                 // bot writes first.
                 if !firstMessage.isEmpty {
@@ -511,6 +528,11 @@ struct BotEditor: View {
                 failure = error.localizedDescription
             }
         }
+    }
+
+    private var trimmedScope: String? {
+        let value = scope.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
     }
 
     /// A machine still connecting (or installing its engine) is waited for, with what's under way

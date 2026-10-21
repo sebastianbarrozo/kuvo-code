@@ -192,6 +192,8 @@ final class Workspace {
     struct ProjectSettings: Codable, Hashable {
         /// Shown instead of the folder's name.
         var name: String?
+        /// A visual area above projects in the Bots sidebar, such as "Personal" or "Work".
+        var scope: String?
         /// Other folders the agent works with, besides the primary one.
         var folders: [String] = []
         /// What Run (⌘R) runs in a terminal: a dev server, say.

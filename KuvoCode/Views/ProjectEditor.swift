@@ -17,6 +17,7 @@ struct ProjectEditor: View {
     @Environment(Workspace.self) private var workspace
     @Environment(\.colorScheme) private var scheme
     @State private var name: String
+    @State private var scope: String
     /// What runs in each new worktree; nil until it's known that the primary folder is in a
     /// git repository (and what the engine has for it).
     @State private var setup: String?
@@ -48,6 +49,7 @@ struct ProjectEditor: View {
         self.close = close
         self.focusesRun = focusesRun
         _name = State(initialValue: project?.settings.name ?? "")
+        _scope = State(initialValue: project?.settings.scope ?? "")
         _run = State(initialValue: project?.settings.run ?? "")
         _folders = State(initialValue: project?.allFolders ?? folders)
         _machine = State(initialValue: (project?.allFolders ?? folders).first.flatMap(RemoteFolder.machine(of:)))
@@ -119,6 +121,7 @@ struct ProjectEditor: View {
     private var form: some View {
         VStack(alignment: .leading, spacing: 20) {
             nameField
+            scopeField
 
             if isNew {
                 section("Location") {
@@ -169,7 +172,8 @@ struct ProjectEditor: View {
 
     private func saveProject() {
         guard let primary = folders.first else { return }
-        save(primary, Workspace.ProjectSettings(name: name, folders: Array(folders.dropFirst()), run: run))
+        let scope = scope.trimmingCharacters(in: .whitespacesAndNewlines)
+        save(primary, Workspace.ProjectSettings(name: name, scope: scope.isEmpty ? nil : scope, folders: Array(folders.dropFirst()), run: run))
         saveSetup()
         close()
     }
@@ -230,6 +234,18 @@ struct ProjectEditor: View {
             }
         }
         .font(.system(size: 15))
+    }
+
+    private var scopeField: some View {
+        WellGroup {
+            WellRow {
+                Image(systemName: "square.3.layers.3d")
+            } content: {
+                TextField("Scope", text: $scope, prompt: Text("Scope, like Personal or Work 1"))
+                    .textFieldStyle(.plain)
+            }
+        }
+        .help("Groups this project's agents together in the Bots sidebar")
     }
 
     // MARK: Location

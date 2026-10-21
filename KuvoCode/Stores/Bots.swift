@@ -24,6 +24,8 @@ struct Bot: Codable, Identifiable, Hashable {
     var machine: String?
     /// The project folder it works in, the app's way of writing it; nil for a folder of its own.
     var project: String?
+    /// A visual scope for a bot that works in its own folder, such as "Personal" or "Work".
+    var scope: String?
     /// Its own folder, as the engine where it lives knows it: its memory, wake-ups and workspace.
     var folder: String
     /// Its conversation.
@@ -166,7 +168,7 @@ final class Bots {
     /// Makes a bot: its folder where it lives, its session there, and its place in the list. Its
     /// job comes from the conversation; `job` writes one in its memory from the start (for the
     /// demo copy).
-    func create(name: String, job: (line: String, details: String)? = nil, look: BotLook, personality: String? = nil, model: ModelRef?, machine: String?, project: String?) async throws -> Bot {
+    func create(name: String, job: (line: String, details: String)? = nil, look: BotLook, personality: String? = nil, model: ModelRef?, machine: String?, project: String?, scope: String? = nil) async throws -> Bot {
         let name = Self.oneLine(name)
         let memory = job.map { Self.addingJob($0.line, details: $0.details, to: Self.blankMemory(name)) } ?? Self.blankMemory(name)
         guard let app else { throw CancellationError() }
@@ -174,7 +176,7 @@ final class Bots {
         // What's made before something fails is taken back: no folder or session half made.
         var session: (id: String, api: OpenCodeAPI)?
         do {
-            return try await create(id: id, name: name, memory: memory, look: look, personality: personality, model: model, machine: machine, project: project, app: app) { session = ($0, $1) }
+            return try await create(id: id, name: name, memory: memory, look: look, personality: personality, model: model, machine: machine, project: project, scope: scope, app: app) { session = ($0, $1) }
         } catch {
             if let session {
                 try? await session.api.deleteSession(session.id)
@@ -185,7 +187,7 @@ final class Bots {
         }
     }
 
-    private func create(id: String, name: String, memory: String, look: BotLook, personality: String?, model: ModelRef?, machine: String?, project: String?, app: AppModel, made: (String, OpenCodeAPI) -> Void) async throws -> Bot {
+    private func create(id: String, name: String, memory: String, look: BotLook, personality: String?, model: ModelRef?, machine: String?, project: String?, scope: String?, app: AppModel, made: (String, OpenCodeAPI) -> Void) async throws -> Bot {
         let folder: String
         if let machine {
             guard let engine = app.machines.engine(machine), engine.isReady else { throw Failure.notConnected(machine) }
@@ -208,7 +210,7 @@ final class Bots {
         }
 
         let kept = Self.job(inMemory: memory)
-        var bot = Bot(id: id, name: name, job: kept?.line ?? "", instructions: kept?.section ?? "", look: look, machine: machine, project: project, folder: folder, sessionID: "", created: .now)
+        var bot = Bot(id: id, name: name, job: kept?.line ?? "", instructions: kept?.section ?? "", look: look, machine: machine, project: project, scope: project == nil ? scope : nil, folder: folder, sessionID: "", created: .now)
         bot.jobInMemory = true
         bot.personality = personality
         let approval = UserDefaults.standard.string(forKey: ToolApproval.key).flatMap(ToolApproval.init) ?? .approveAll
@@ -285,6 +287,7 @@ final class Bots {
         bot.look = edited.look
         bot.model = edited.model
         bot.personality = edited.personality
+        bot.scope = edited.project == nil ? edited.scope : nil
         list[index] = bot
         save()
         var edits: Set<String> = []

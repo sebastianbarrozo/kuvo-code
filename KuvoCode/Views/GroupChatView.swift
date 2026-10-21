@@ -9,6 +9,7 @@ struct GroupChatView: View {
     var findRequest = 0
     @Environment(BotGroups.self) private var groups
     @Environment(Bots.self) private var bots
+    @Environment(Workspace.self) private var workspace
     @State private var scroller = ConversationScroller()
     /// Goes up to have the composer take the keyboard.
     @State private var composerFocus = 0
@@ -27,6 +28,7 @@ struct GroupChatView: View {
         ConversationScroll(scroller: scroller, spacing: 18, change: [messages.last?.id, speaker?.id, String(messages.count)], quote: { text in
             addQuote(text, how: "selection")
         }) {
+            GroupWorkspaceContext(members: members)
             // Laid out by a stack of their own, as a session's rows are (see `RowStack`).
             RowStack(items: messages, id: \.id, spacing: 18, same: ==, estimate: { 70 + CGFloat($0.text.count / 95) * 24 },
                      text: { FindText.shown(markdown: $0.text, folders: []) }) { message, _ in
@@ -129,6 +131,88 @@ struct GroupChatView: View {
         Drafts.shared[draftKey].quotes = []
         scroller.toEnd()
     }
+}
+
+/// The place each member works, made visible in the group conversation so parallel agents stay
+/// distinguishable: scope, project and the agents that work there.
+private struct GroupWorkspaceContext: View {
+    let members: [Bot]
+    @Environment(Workspace.self) private var workspace
+
+    private struct Project: Identifiable {
+        let directory: String?
+        let title: String
+        let members: [Bot]
+        var id: String { directory ?? title }
+    }
+
+    private struct Scope: Identifiable {
+        let name: String
+        let projects: [Project]
+        var id: String { name }
+    }
+
+    private var scopes: [Scope] {
+        let byProject = Dictionary(grouping: members) { bot -> String in
+            bot.project.map(workspace.projectDirectory) ?? "own:\(bot.id)"
+        }
+        let projects = byProject.map { key, bots -> Project in
+            let directory = bots.first?.project.map(workspace.projectDirectory)
+            let title = directory.map(workspace.projectName) ?? "Own folder"
+            return Project(directory: directory, title: title, members: bots.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending })
+        }
+        return Dictionary(grouping: projects) { project in
+            guard let directory = project.directory else {
+                return project.members.first?.scope?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty ?? "No scope"
+            }
+            return workspace.settings[directory]?.scope?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty ?? "No scope"
+        }.map { name, projects in
+            Scope(name: name, projects: projects.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending })
+        }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Group workspace", systemImage: "square.3.layers.3d.fill")
+                .font(.headline)
+            ForEach(scopes) { scope in
+                VStack(alignment: .leading, spacing: 8) {
+                    Label(scope.name, systemImage: "square.3.layers.3d")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    ForEach(scope.projects) { project in
+                        projectRow(project)
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .recessedWell(RoundedRectangle(cornerRadius: 12))
+        .padding(.bottom, 2)
+    }
+
+    @ViewBuilder private func projectRow(_ project: Project) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: project.directory == nil ? "folder.badge.person.crop" : "folder.fill")
+                Text(project.title).fontWeight(.medium)
+            }
+            .font(.callout)
+            ForEach(project.members) { bot in
+                HStack(spacing: 7) {
+                    BotAvatar(look: bot.look, size: 18, animates: false)
+                    Text(bot.name)
+                }
+                .font(.caption)
+                .padding(.leading, 4)
+            }
+        }
+        .padding(.leading, 4)
+    }
+}
+
+private extension String {
+    var nonEmpty: String? { isEmpty ? nil : self }
 }
 
 /// A meeting you scheduled, come due: its topic, which the bots then talk through.

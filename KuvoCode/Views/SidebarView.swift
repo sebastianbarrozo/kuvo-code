@@ -32,6 +32,8 @@ struct SidebarView: View {
     @AppStorage("collapsedProjects") private var collapsedStorage = ""
     /// Sections the user folded away: "pinned", "bots", "chats", "projects", "recents" (newline-separated).
     @AppStorage("collapsedSections") private var foldedStorage = ""
+    /// Visual agent scopes the user folded away, by scope name (newline-separated).
+    @AppStorage("collapsedAgentScopes") private var collapsedScopesStorage = ""
     /// Projects showing all their sessions instead of the latest few.
     @State private var showsAll: Set<String> = []
     /// Where sessions were picked from. A session shows in its project and in Recents; only
@@ -156,15 +158,26 @@ struct SidebarView: View {
                         }
                         .help("A teammate with one job, that keeps working while you're away")
                     }
-                    ForEach(bots.list) { bot in
-                        BotRow(bot: bot, isSelected: selection == bot.sessionID, animates: !stagedBots.contains(bot.id)) {
-                            selection = bot.sessionID
-                        }
-                        .contextMenu {
-                            Button("Edit Bot…") { editBot(bot) }
+                    ForEach(bots.list.filter { $0.project == nil && ($0.scope?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) }) { bot in
+                        botRow(bot)
+                    }
+                    ForEach(agentScopes, id: \.name) { scope in
+                        AgentScopeGroup(title: scope.name, isOpen: !collapsedScopes.contains(scope.name)) {
+                            withAnimation(.ui) { toggleScope(scope.name) }
+                        } content: {
+                            ForEach(scope.bots) { bot in
+                                botRow(bot)
+                            }
+                            ForEach(scope.projects) { item in
+                                AgentProjectGroup(title: workspace.projectName(item.directory)) {
+                                    ForEach(item.bots) { bot in
+                                        botRow(bot)
+                                    }
+                                }
+                            }
                         }
                     }
-                    // Group chats, under the bots they're with.
+                    // Group chats are separate from the visual grouping of agents.
                     ForEach(groups.list) { group in
                         let key = BotGroups.tabKey(group.id)
                         GroupRow(group: group, isSelected: selection == key) {
@@ -418,6 +431,60 @@ struct SidebarView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+        }
+    }
+
+    /// Bots already choose a project in their editor. Group them here without changing what a
+    /// project means: a project can still hold several folders.
+    private struct AgentProject: Identifiable {
+        let directory: String
+        let scope: String?
+        let bots: [Bot]
+        var id: String { directory }
+    }
+
+    private struct AgentScope {
+        let name: String
+        let bots: [Bot]
+        let projects: [AgentProject]
+    }
+
+    private var agentScopes: [AgentScope] {
+        let byProject = Dictionary(grouping: bots.list.compactMap { bot in
+            bot.project.map { (workspace.projectDirectory($0), bot) }
+        }, by: \.0)
+        let projects = byProject.map { directory, bots in
+            AgentProject(directory: directory, scope: workspace.settings[directory]?.scope, bots: bots.map(\.1).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending })
+        }
+        let projectsByScope = Dictionary(grouping: projects, by: { project in
+            let scope = project.scope?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return scope.isEmpty ? "No Scope" : scope
+        })
+        let botsByScope = Dictionary(grouping: bots.list.filter { $0.project == nil }.compactMap { bot -> (String, Bot)? in
+            let scope = bot.scope?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return scope.isEmpty ? nil : (scope, bot)
+        }, by: \.0)
+        return Set(projectsByScope.keys).union(botsByScope.keys).map { name in
+            AgentScope(name: name,
+                       bots: (botsByScope[name] ?? []).map(\.1).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending },
+                       projects: (projectsByScope[name] ?? []).sorted { workspace.projectName($0.directory).localizedStandardCompare(workspace.projectName($1.directory)) == .orderedAscending })
+        }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    private var collapsedScopes: Set<String> { Set(collapsedScopesStorage.split(separator: "\n").map(String.init)) }
+
+    private func toggleScope(_ name: String) {
+        var values = collapsedScopes
+        if values.contains(name) { values.remove(name) } else { values.insert(name) }
+        collapsedScopesStorage = values.sorted().joined(separator: "\n")
+    }
+
+    @ViewBuilder private func botRow(_ bot: Bot) -> some View {
+        BotRow(bot: bot, isSelected: selection == bot.sessionID, animates: !stagedBots.contains(bot.id)) {
+            selection = bot.sessionID
+        }
+        .contextMenu {
+            Button("Edit Bot…") { editBot(bot) }
         }
     }
 
